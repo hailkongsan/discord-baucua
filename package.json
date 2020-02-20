@@ -1,0 +1,23 @@
+{
+  "name": "discord-bot",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "dev": "nodemon index.js",
+    "start": "node index.js",
+    "db": "sequelize-cli"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "discord.js": "^11.5.1",
+    "dotenv": "^8.2.0",
+    "lodash": "^4.17.15",
+    "minimist": "^1.2.0",
+    "mysql2": "^2.1.0",
+    "sequelize": "^5.21.4",
+    "sequelize-cli": "^5.5.1"
+  }
+}
