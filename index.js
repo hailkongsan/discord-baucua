@@ -5,10 +5,13 @@ const _ = require('lodash');
 const client = new Discord.Client();
 const { User, Bet, Sequelize } = require('./models');
 const { complieMessage, removeUnicode } = require('./utils');
+const shortid = require('shortid');
+
+const db = require('./database.js');
 
 
 const INIT_BALANCE = 1000;
-const GAME_TIME = 60000;
+const GAME_TIME = 40000;
 const ADMIN_ID = '621326534803849218';
 const SERVER_ID = '665236998549667841';
 
@@ -39,11 +42,13 @@ const messages = {
 
 messages.INVALID_CHOICE = `Invalid bet choice, it may only contain: ${prettyChoices.join(', ')}.`
 
-const findOrCreateUser = async (id, username) => {
-  const [user] = await User.findOrCreate({
-    where: { id },
-    defaults: { balance: INIT_BALANCE, name: username }
-  })
+const findOrCreateUser = (id, name) => {
+
+  let user = db.get('users').find({ id }).value()
+  if (user === undefined) {
+    user = { id, name, balance: INIT_BALANCE }
+    db.get('users').push(user).write()
+  }
 
   return user;
 }
@@ -63,17 +68,17 @@ const validateBetChoice = (bets) => {
 }
 
 const createBets = (bets, attrs) => {
-  bets = bets.map(bet => {
-    return {
+  bets.forEach(bet => {
+    db.get('bets').push({
+      id: shortid.generate(),
       userId: attrs.userId,
       channelId: attrs.channelId,
       choiceId: CHOICES[bet.choice],
       amount: bet.amount,
       processed: false,
-    }
+    }).write()
   })
 
-  Bet.bulkCreate(bets)
 }
 
 const handleBet = async (command, userId, channelId, username) => {
@@ -99,34 +104,40 @@ const handleBet = async (command, userId, channelId, username) => {
     return messages.INVALID_CHOICE;
   }
 
-  const user = await findOrCreateUser(userId, username);
-
+  const user = findOrCreateUser(userId, username);
 
   const totalBetAmount = _.sumBy(bets, 'amount');
   if (totalBetAmount > user.balance) {
-    user.save()
     return complieMessage(messages.NOT_ENOUGH_BALANCE, { balance: user.balance })
   }
 
   createBets(bets, { userId, channelId });
 
-  user.balance -= totalBetAmount;
-  user.name = username;
-  user.save();
+  user.balance -= totalBetAmount
+  user.name = username
+
+  db.get('users')
+    .find({ id: userId })
+    .assign(user)
+    .write()
 
   return complieMessage(messages.BET, { betChoice: prettyBetChoices(bets) });
 }
 
 const processBet = async () => {
-  const unprocessedBetCount = await Bet.count({ where: { processed: false } })
+  console.log('Processing bets.')
+  const unprocessedBetCount = db.get('bets').filter(bet => !bet.processed).size().value()
   if (unprocessedBetCount <= 0) {
     console.log('no unprocessed bet')
     return
   }
+  console.log(`Found ${unprocessedBetCount} unprocessed bets.`)
 
   const rolls = _.times(3, () => {
     return _.random(1, 6)
   })
+  // const rolls = [1, 1, 6] // for testing
+
   const namedRoll = rolls.map((el) => {
     return _.capitalize(_.findKey(CHOICES, (choice) => choice === el))
   })
@@ -137,42 +148,30 @@ const processBet = async () => {
     rollCount[rollValue] = (rollCount[rollValue]) ? rollCount[rollValue] + 1 : 1
   })
 
-  const bets = await Bet.findAll({
-    attributes: ['id', 'userId', 'channelId', 'choiceId', 'amount'],
-    where: {
-      processed: false,
-    }
-  })
-  const winners = await User.findAll({
-    attributes: ['id', 'balance', 'name'],
-    where: {
-      id: {
-        [Sequelize.Op.in]: _.uniq(bets.map(e => e.userId))
-      }
-    }
-  })
+
+  const bets = db.get('bets').value()
+  const winnerIds = _.uniq(bets.map(bet => bet.userId))
+
 
   const channelIdToWinnerMap = {}
-  await Promise.all(bets.forEach(async (bet) => {
+  bets.forEach(async (bet) => {
     if (!channelIdToWinnerMap[bet.channelId]) {
       channelIdToWinnerMap[bet.channelId] = []
     }
     if (rolls.includes(bet.choiceId)) {
       const reward = bet.amount * (rollCount[bet.choiceId] + 1)
-      const winner = winners.find(winner => bet.userId === winner.id)
+      const winner = db.get('users').find({ id: bet.userId }).value()
+      console.log(winner)
       if (winner) {
         winner.balance += reward
+        db.get('users').find({ id: winner.id }).assign(winner).write()
         channelIdToWinnerMap[bet.channelId].push(winner.id)
       }
     }
-    await bet.destroy();
-  }))
-
-  winners.forEach(async (winner) => {
-    if (winner.changed()) {
-      winner.save()
-    }
+    bet.processed = true
+    db.get('bets').remove({ id: bet.id }).write()
   })
+
 
   Object.keys(channelIdToWinnerMap).forEach((channelId) => {
     const winner = _.uniq(channelIdToWinnerMap[channelId]).map(userId => `<@${userId}>`).join(' ')
@@ -192,7 +191,7 @@ const processBet = async () => {
 }
 
 const viewBalance = async (author) => {
-  const user = await User.findByPk(author.id)
+  const user = db.get('users').find({ id: author.id }).value()
   if (user) {
     return `Your point is: ${user.balance}`
   } else {
@@ -215,15 +214,17 @@ const handleAdjustBalance = async (command, author, mentions) => {
     return 'Amount cant be 0.'
   }
 
-  if (! mentions.everyone) {
+  if (!mentions.everyone) {
     const mentionUsers = mentions.users;
     if (mentionUsers.array().length > 0) {
       const pointAddedUsers = []
       await Promise.all(mentionUsers.map(async (user) => {
         if (!user.bot) {
-          const dbUser = await User.findByPk(user.id)
+          // const dbUser = await User.findByPk(user.id)
+          const dbUser = db.get('users').find({ id: user.id }).value()
           if (dbUser) {
-            await dbUser.increment('balance', { by: amount });
+            dbUser.balance += amount
+            db.get('users').find({ id: dbUser.id }).assign(dbUser).write()
             pointAddedUsers.push(user);
           }
         }
@@ -245,7 +246,7 @@ const tryFallBacktoHandleBet = async (command, msg) => {
   const reg = RegExp(/[a-zA-Z]*:\d*/)
   const args = command.trim().split(' ')
   const isValid = args.every((arg) => reg.test(arg))
-  
+
   if (isValid) {
     const userId = msg.author.id;
     const guild = msg.guild;
@@ -267,7 +268,6 @@ client.on('ready', () => {
   console.log(`Logged in as ${client.user.tag}!`);
   client.setInterval(() => {
     processBet()
-    Bet.destroy({ where: { processed: true } })
   }, GAME_TIME);
 });
 
