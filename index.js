@@ -1,11 +1,5 @@
 require('dotenv').config()
 
-const { exec } = require('child_process');
-(() => {
-  console.log('migrating');
-  exec('yarn db db:migrate');
-})()
-
 const Discord = require('discord.js');
 const _ = require('lodash');
 const client = new Discord.Client();
