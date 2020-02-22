@@ -3,7 +3,6 @@ require('dotenv').config()
 const Discord = require('discord.js');
 const _ = require('lodash');
 const client = new Discord.Client();
-const { User, Bet, Sequelize } = require('./models');
 const { complieMessage, removeUnicode } = require('./utils');
 const shortid = require('shortid');
 
