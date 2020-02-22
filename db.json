@@ -1,10 +1,4 @@
 {
-  "users": [
-    {
-      "id": "621326534803849218",
-      "name": "minh duc",
-      "balance": 400
-    }
-  ],
+  "users": [],
   "bets": []
 }
