@@ -4,7 +4,8 @@
     "password": null,
     "database": "baucua",
     "host": "127.0.0.1",
-    "dialect": "mysql",
+    "dialect": "sqlite",
+    "storage": "../bc.db",
     "logging": false
   },
   "test": {
@@ -20,6 +21,6 @@
     "database": "baucua",
     "host": "127.0.0.1",
     "dialect": "sqlite",
-    "storage": ":memory:"
+    "storage": "../bc.db"
   }
 }
